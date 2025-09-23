@@ -1,0 +1,64 @@
+---
+title: "ARTS Metrics"
+format: html
+author: "Heidi Rodenhizer"
+---
+
+# Load Packages
+
+```{r}
+library(sf)
+library(tidyverse)
+```
+
+# Load Data
+
+```{r}
+arts = st_read(
+  "../ARTS/ARTS_main_dataset/v.6.0.0/ARTS_main_dataset_v.6.0.0.geojson"
+)
+tk_landscapes = st_read(
+  "../rts_rep_analysis/input_data/OlefeldtThermokarstMap/data/Circumpolar_Thermokarst_Landscapes_epsg3413.shp"
+)
+```
+
+# Size Distribution
+
+```{r}
+arts_filter = arts |>
+  separate(
+    BaseMapDate,
+    into = c("BaseMapDateStart", "BaseMapDateEnd"),
+    sep = ",",
+    remove = FALSE
+  ) |>
+  mutate(
+    across(
+      c(BaseMapDateStart, BaseMapDateEnd),
+      ~ as.Date(.x)
+    )
+  ) |>
+  filter(
+    TrainClass == "Positive" &
+      LabelType == "Polygon" &
+      BaseMapDateEnd == max(BaseMapDateEnd),
+    .by = c(UID)
+  )
+
+arts_filter = arts_filter |>
+  mutate(
+    Area = as.numeric(st_area(arts_filter))
+  )
+```
+
+```{r}
+ggplot(
+  arts_filter,
+  aes(x = Area)
+) +
+  geom_histogram()
+```
+
+# Thermokarst Landscapes Distribution
+
+# Multiple RTS in DVM-DOS-TEM Grid Cells
