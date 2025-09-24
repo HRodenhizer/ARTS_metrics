@@ -9,6 +9,7 @@ author: "Heidi Rodenhizer"
 ```{r}
 library(sf)
 library(labelled)
+library(viridis)
 library(tidyverse)
 ```
 
@@ -21,10 +22,29 @@ theme_set(theme_bw())
 ```{r}
 arts = st_read(
   "../ARTS/ARTS_main_dataset/v.6.0.0/ARTS_main_dataset_v.6.0.0.geojson"
-)
+) |>
+  st_make_valid()
 tk_landscapes = st_read(
   "../rts_rep_analysis/input_data/OlefeldtThermokarstMap/data/Circumpolar_Thermokarst_Landscapes_epsg3413.shp"
-)
+) |>
+  st_make_valid() |>
+  mutate(
+    across(
+      TKWP:TKHP,
+      ~ factor(
+        .x,
+        levels = c("None", "Low", "Moderate", "High", "Very High"),
+        ordered = TRUE
+      )
+    )
+  )
+```
+
+```{r}
+world = rnaturalearth::ne_countries(scale = "large", returnclass = "sf")
+world = world |>
+  st_transform(3413) |>
+  st_crop(st_bbox(st_buffer(tk_landscapes, dist = 500000)))
 ```
 
 # Area Distribution
@@ -54,7 +74,7 @@ arts_filter = arts_filter |>
   mutate(
     Area = as.numeric(st_area(arts_filter))
   ) |>
-  set_variable_labels(Area = expression("Area (m^2)"))
+  set_variable_labels(Area = "Area (m^2)")
 ```
 
 ```{r}
@@ -63,7 +83,7 @@ area_hist = ggplot(
   aes(x = Area)
 ) +
   geom_histogram(binwidth = 10000, boundary = 0) +
-  scale_x_continuous(name = expression("Area (m"^2 ~ ")")) +
+  scale_x_continuous(name = expression("RTS Area (m"^2 ~ ")")) +
   scale_y_continuous(
     name = "Count",
     expand = expansion(mult = c(0, 0.05))
@@ -86,5 +106,135 @@ area_bin_data = area_bin_data |>
 ```
 
 # Thermokarst Landscapes Distribution
+
+```{r}
+tk_simplified = tk_landscapes |>
+  group_by(TKWP, TKThLP, TKHP) %>%
+  summarize(geometry = st_union(geometry)) |>
+  st_make_valid()
+```
+
+```{r}
+ggplot() +
+  geom_sf(data = world) +
+  geom_sf(data = tk_simplified, aes(color = TKHP, fill = TKHP)) +
+  scale_color_viridis(discrete = TRUE) +
+  scale_fill_viridis(discrete = TRUE) +
+  coord_sf(expand = FALSE)
+```
+
+```{r}
+# arts_tk = arts_filter |>
+#   st_join(
+#     tk_simplified,
+#     largest = TRUE
+#   )
+
+# st_write(
+#   arts_tk,
+#   "./data/arts_tk.geojson"
+# )
+arts_tk = st_read("./data/arts_tk.geojson")
+```
+
+```{r}
+arts_tk = arts_tk |>
+  mutate(
+    across(
+      TKWP:TKHP,
+      ~ factor(
+        .x,
+        levels = c("None", "Low", "Moderate", "High", "Very High"),
+        ordered = TRUE
+      )
+    )
+  ) |>
+  rowwise() |>
+  mutate(
+    AnyTK = max(c(TKWP, TKThLP, TKHP), na.rm = TRUE)
+  )
+```
+
+```{r}
+ggplot(arts_tk) +
+  geom_histogram(
+    aes(x = TKHP, color = TKWP, fill = TKWP),
+    stat = "count"
+  ) +
+  scale_color_viridis(
+    name = "Wetland Thermokarst\nLikelihood\n (Olefeldt et al. 2016)",
+    discrete = TRUE,
+    na.value = "gray50"
+  ) +
+  scale_fill_viridis(
+    name = "Wetland Thermokarst\nLikelihood\n (Olefeldt et al. 2016)",
+    discrete = TRUE,
+    na.value = "gray50"
+  ) +
+  scale_x_discrete(
+    name = "Hillslope Thermokarst Likelihood\n(Olefeldt et al. 2016)"
+  ) +
+  scale_y_continuous(
+    name = "Count",
+    expand = expansion(mult = c(0, 0.05))
+  )
+```
+
+```{r}
+ggplot(arts_tk) +
+  geom_histogram(
+    aes(x = TKHP, color = TKThLP, fill = TKThLP),
+    stat = "count"
+  ) +
+  scale_color_viridis(
+    name = "Thermokarst Lake\nLikelihood\n (Olefeldt et al. 2016)",
+    discrete = TRUE,
+    na.value = "gray50"
+  ) +
+  scale_fill_viridis(
+    name = "Thermokarst Lake\nLikelihood\n (Olefeldt et al. 2016)",
+    discrete = TRUE,
+    na.value = "gray50"
+  ) +
+  scale_x_discrete(
+    name = "Hillslope Thermokarst Likelihood\n(Olefeldt et al. 2016)"
+  ) +
+  scale_y_continuous(
+    name = "Count",
+    expand = expansion(mult = c(0, 0.05))
+  )
+```
+
+```{r}
+(rts_tk = ggplot(arts_tk) +
+  geom_histogram(
+    aes(x = AnyTK, color = TKHP, fill = TKHP),
+    stat = "count"
+  ) +
+  scale_color_viridis(
+    name = "Hillslope\nThermokarst\nLikelihood",
+    discrete = TRUE,
+    na.value = "gray50"
+  ) +
+  scale_fill_viridis(
+    name = "Hillslope\nThermokarst\nLikelihood",
+    discrete = TRUE,
+    na.value = "gray50"
+  ) +
+  scale_x_discrete(
+    name = "Any Thermokarst Likelihood\n(Olefeldt et al. 2016)"
+  ) +
+  scale_y_continuous(
+    name = "Count",
+    expand = expansion(mult = c(0, 0.05))
+  ))
+
+# ggsave(
+#   "./figures/rts_thermokarst.jpg",
+#   rts_tk,
+#   height = 4,
+#   width = 6.5
+# )
+```
 
 # Multiple RTS in DVM-DOS-TEM Grid Cells
