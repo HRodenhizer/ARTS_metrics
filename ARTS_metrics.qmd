@@ -4,11 +4,16 @@ format: html
 author: "Heidi Rodenhizer"
 ---
 
-# Load Packages
+# Set-Up
 
 ```{r}
 library(sf)
+library(labelled)
 library(tidyverse)
+```
+
+```{r}
+theme_set(theme_bw())
 ```
 
 # Load Data
@@ -22,7 +27,7 @@ tk_landscapes = st_read(
 )
 ```
 
-# Size Distribution
+# Area Distribution
 
 ```{r}
 arts_filter = arts |>
@@ -48,15 +53,36 @@ arts_filter = arts |>
 arts_filter = arts_filter |>
   mutate(
     Area = as.numeric(st_area(arts_filter))
-  )
+  ) |>
+  set_variable_labels(Area = expression("Area (m^2)"))
 ```
 
 ```{r}
-ggplot(
+area_hist = ggplot(
   arts_filter,
   aes(x = Area)
 ) +
-  geom_histogram()
+  geom_histogram(binwidth = 10000, boundary = 0) +
+  scale_x_continuous(name = expression("Area (m"^2 ~ ")")) +
+  scale_y_continuous(
+    name = "Count",
+    expand = expansion(mult = c(0, 0.05))
+  )
+
+# ggsave(
+#   "./figures/rts_area.jpg",
+#   area_hist,
+#   height = 3,
+#   width = 4
+# )
+
+area_bin_data = ggplot_build(area_hist)$data[[1]]
+area_bin_data = area_bin_data |>
+  select(area_min = xmin, area_max = xmax, count)
+# write_csv(
+#   area_bin_data,
+#   "./data/area_bin_data.csv"
+# )
 ```
 
 # Thermokarst Landscapes Distribution
