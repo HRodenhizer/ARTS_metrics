@@ -78,16 +78,26 @@ arts_filter = arts_filter |>
 ```
 
 ```{r}
-area_hist = ggplot(
+(area_hist = ggplot(
   arts_filter,
   aes(x = Area)
 ) +
-  geom_histogram(binwidth = 10000, boundary = 0) +
+  geom_histogram(
+    aes(y = ..count.. / sum(..count..)),
+    color = "gray35",
+    linewidth = 1,
+    binwidth = 10000,
+    boundary = 0
+  ) +
+  # geom_histogram(
+  #   binwidth = 10000,
+  #   boundary = 0
+  # ) +
   scale_x_continuous(name = expression("RTS Area (m"^2 ~ ")")) +
   scale_y_continuous(
-    name = "Count",
+    name = "Proportion",
     expand = expansion(mult = c(0, 0.05))
-  )
+  ))
 
 # ggsave(
 #   "./figures/rts_area.jpg",
