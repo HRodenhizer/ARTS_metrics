@@ -37,7 +37,11 @@ tk_landscapes = st_read(
         ordered = TRUE
       )
     )
-  )
+  ) # TKWP = Wetland Thermokarst, TKThLP = Thermokarst Lakes, TKHP = Hillslope Thermokarst
+
+tem_grid = st_read(
+  "./data/aoi_5km_buffer_4km_rez_6931_pixel_polygons/aoi_5km_buffer_4km_rez_6931_pixel_polygons.shp"
+)
 ```
 
 ```{r}
@@ -248,3 +252,115 @@ ggplot(arts_tk) +
 ```
 
 # Multiple RTS in DVM-DOS-TEM Grid Cells
+
+```{r}
+arts_filter_6931 = arts_filter |>
+  st_transform(crs = 6931)
+```
+
+```{r}
+rts_counts = tem_grid |>
+  mutate(
+    rts_count = lengths(st_intersects(tem_grid, arts_filter_6931)),
+    rts_density = rts_count / 16
+  )
+```
+
+```{r}
+(rts_density = ggplot(
+  rts_counts |>
+    filter(rts_density != 0),
+  aes(x = rts_density)
+) +
+  geom_histogram(
+    aes(y = ..count.. / sum(..count..)),
+    color = "gray35",
+    linewidth = 1,
+    binwidth = 1,
+    boundary = 0
+  ) +
+  scale_x_continuous(
+    name = expression("RTS Density (# km"^-2 ~ ")")
+  ) +
+  scale_y_continuous(
+    name = "Proportion",
+    expand = expansion(mult = c(0, 0.05))
+  ) +
+  ggtitle("Excluding Density == 0"))
+
+# ggsave(
+#   "./figures/rts_density.jpg",
+#   rts_density,
+#   height = 3,
+#   width = 4
+# )
+```
+
+```{r}
+(density_hist = ggplot(
+  rts_counts,
+  aes(x = rts_density)
+) +
+  geom_histogram(
+    aes(y = ..count.. / sum(..count..)),
+    color = "gray35",
+    linewidth = 1,
+    binwidth = 1,
+    boundary = 0
+  ) +
+  scale_x_continuous(
+    name = expression("RTS Density (# km"^-2 ~ ")")
+  ) +
+  scale_y_continuous(
+    name = "Proportion\n(sqrt transformation)",
+    expand = expansion(mult = c(0, 0.05)),
+    transform = "sqrt",
+    breaks = c(0, 0.001, 0.01, 0.1, 1),
+    minor_breaks = NULL
+  ))
+
+# ggsave(
+#   "./figures/rts_density_ysqrt.jpg",
+#   density_hist,
+#   height = 3,
+#   width = 4
+# )
+
+density_bin_data = ggplot_build(density_hist)$data[[1]]
+density_bin_data = density_bin_data |>
+  select(density_min = xmin, density_max = xmax, count)
+# write_csv(
+#   density_bin_data,
+#   "./data/density_bin_data.csv"
+# )
+```
+
+
+```{r}
+bbox = st_bbox(
+  rts_counts |>
+    filter(rts_density != 0)
+)
+
+ggplot() +
+  geom_sf(data = world) +
+  geom_sf(
+    data = rts_counts |>
+      filter(rts_density != 0),
+    aes(color = rts_density, fill = rts_density),
+    linewidth = 1
+  ) +
+  scale_color_viridis(trans = "log10") +
+  scale_fill_viridis(trans = "log10") +
+  coord_sf(
+    expand = FALSE,
+    xlim = c(bbox["xmin"], bbox["xmax"]),
+    ylim = c(bbox["ymin"], bbox["ymax"])
+  )
+
+# ggsave(
+#   "./figures/rts_density_map.jpg",
+#   height = 5,
+#   width = 6.5
+# )
+```
