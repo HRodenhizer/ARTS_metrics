@@ -125,7 +125,11 @@ area_bin_data = area_bin_data |>
 tk_simplified = tk_landscapes |>
   group_by(TKWP, TKThLP, TKHP) %>%
   summarize(geometry = st_union(geometry)) |>
-  st_make_valid()
+  st_make_valid() |>
+  mutate(
+    area_tk = as.numeric(st_area(geometry)) / 1e6,
+    .before = geometry
+  )
 ```
 
 ```{r}
@@ -152,6 +156,44 @@ arts_tk = st_read("./data/arts_tk.geojson")
 ```
 
 ```{r}
+(rts_no_tk = ggplot() +
+  geom_sf(data = world) +
+  geom_sf(
+    data = arts_tk |>
+      filter(
+        (TKWP == "None" | str_length(TKWP) == 0) &
+          (TKThLP == "None" | str_length(TKWP) == 0) &
+          (TKHP == "None" | str_length(TKWP) == 0)
+      ),
+    aes(
+      color = "RTS With No\nThermokarst Likelihood",
+      fill = "RTS With No\nThermokarst Likelihood"
+    ),
+    linewidth = 1,
+  ) +
+  scale_color_manual(
+    name = "",
+    values = c("RTS With No\nThermokarst Likelihood" = "darkred")
+  ) +
+  scale_fill_manual(
+    name = "",
+    values = c("RTS With No\nThermokarst Likelihood" = "darkred")
+  ) +
+  coord_sf(expand = FALSE) +
+  theme(
+    legend.title = element_blank(),
+    legend.position = "bottom"
+  ))
+
+# ggsave(
+#   "./figures/rts_no_thermokarst.jpg",
+#   rts_no_tk,
+#   height = 7,
+#   width = 6.5
+# )
+```
+
+```{r}
 arts_tk = arts_tk |>
   mutate(
     across(
@@ -166,7 +208,8 @@ arts_tk = arts_tk |>
   rowwise() |>
   mutate(
     AnyTK = max(c(TKWP, TKThLP, TKHP), na.rm = TRUE)
-  )
+  ) |>
+  ungroup()
 ```
 
 ```{r}
@@ -177,11 +220,13 @@ ggplot(arts_tk) +
   ) +
   scale_color_viridis(
     name = "Wetland Thermokarst\nLikelihood\n (Olefeldt et al. 2016)",
+    drop = FALSE,
     discrete = TRUE,
     na.value = "gray50"
   ) +
   scale_fill_viridis(
     name = "Wetland Thermokarst\nLikelihood\n (Olefeldt et al. 2016)",
+    drop = FALSE,
     discrete = TRUE,
     na.value = "gray50"
   ) +
@@ -202,11 +247,13 @@ ggplot(arts_tk) +
   ) +
   scale_color_viridis(
     name = "Thermokarst Lake\nLikelihood\n (Olefeldt et al. 2016)",
+    drop = FALSE,
     discrete = TRUE,
     na.value = "gray50"
   ) +
   scale_fill_viridis(
     name = "Thermokarst Lake\nLikelihood\n (Olefeldt et al. 2016)",
+    drop = FALSE,
     discrete = TRUE,
     na.value = "gray50"
   ) +
@@ -227,11 +274,13 @@ ggplot(arts_tk) +
   ) +
   scale_color_viridis(
     name = "Hillslope\nThermokarst\nLikelihood",
+    drop = FALSE,
     discrete = TRUE,
     na.value = "gray50"
   ) +
   scale_fill_viridis(
     name = "Hillslope\nThermokarst\nLikelihood",
+    drop = FALSE,
     discrete = TRUE,
     na.value = "gray50"
   ) +
@@ -251,6 +300,108 @@ ggplot(arts_tk) +
 # )
 ```
 
+# Percent Cover by Thermokarst Landscapes
+
+```{r}
+arts_tk_percent_by_class = arts_tk |>
+  st_drop_geometry() |>
+  summarise(
+    area_rts = sum(Area) / 1e6, # convert to km^2
+    .by = c(TKWP, TKThLP, TKHP, area_tk)
+  ) |>
+  mutate(
+    rts_percent = area_rts / area_tk * 100 # convert to percent
+  )
+
+arts_tk_percent = arts_tk |>
+  st_drop_geometry() |>
+  summarise(
+    area_rts = sum(Area) / 1e6, # convert to km^2
+    area_tk = sum(area_tk),
+    .by = c(AnyTK)
+  ) |>
+  mutate(
+    rts_percent = area_rts / area_tk * 100 # convert to percent
+  )
+```
+
+```{r}
+(rts_percent_any_tk = ggplot(arts_tk_percent) +
+  geom_col(
+    aes(x = AnyTK, y = rts_percent, color = AnyTK, fill = AnyTK),
+    position = "dodge",
+    linewidth = 1
+  ) +
+  scale_color_viridis(
+    name = "Any Thermokarst\nLikelihood",
+    drop = FALSE,
+    discrete = TRUE,
+    na.value = "gray50"
+  ) +
+  scale_fill_viridis(
+    name = "Any Thermokarst\nLikelihood",
+    drop = FALSE,
+    discrete = TRUE,
+    na.value = "gray50"
+  ) +
+  scale_x_discrete(
+    name = "Any Thermokarst Likelihood\n(Olefeldt et al. 2016)"
+  ) +
+  scale_y_continuous(
+    name = "RTS Percent Cover (%)",
+    expand = expansion(mult = c(0, 0.05))
+  ) +
+  ggtitle(
+    "RTS Percent Cover\nby Total Thermokarst Likelihood\n(Non-Exhaustive Inventory of RTS from ARTS)"
+  ))
+
+# ggsave(
+#   "./figures/rts_percent_thermokarst.jpg",
+#   rts_percent_any_tk,
+#   height = 4,
+#   width = 6.5
+# )
+```
+
+```{r}
+(rts_percent_hillslope = ggplot(arts_tk_percent_by_class) +
+  geom_col(
+    aes(x = TKHP, y = rts_percent, color = TKHP, fill = TKHP),
+    position = "dodge",
+    linewidth = 1,
+    show.legend = TRUE
+  ) +
+  scale_color_viridis(
+    name = "Hillslope\nThermokarst\nLikelihood",
+    drop = FALSE,
+    discrete = TRUE,
+    na.value = "gray50"
+  ) +
+  scale_fill_viridis(
+    name = "Hillslope\nThermokarst\nLikelihood",
+    drop = FALSE,
+    discrete = TRUE,
+    na.value = "gray50"
+  ) +
+  scale_x_discrete(
+    name = "Hillslope Thermokarst Likelihood\n(Olefeldt et al. 2016)"
+  ) +
+  scale_y_continuous(
+    name = "RTS Percent Cover (%)",
+    expand = expansion(mult = c(0, 0.05))
+  ) +
+  ggtitle(
+    "RTS Percent Cover\nby Hillslope Thermokarst Likelihood\n(Non-Exhaustive Inventory of RTS from ARTS)"
+  ))
+
+# ggsave(
+#   "./figures/rts_percent_hillslope.jpg",
+#   rts_percent_hillslope,
+#   height = 4,
+#   width = 6.5
+# )
+```
+
 # Multiple RTS in DVM-DOS-TEM Grid Cells
 
 ```{r}
@@ -261,8 +412,9 @@ arts_filter_6931 = arts_filter |>
 ```{r}
 rts_counts = tem_grid |>
   mutate(
+    grid_area = as.numeric(st_area(tem_grid)) / 1e6, # convert to km^2
     rts_count = lengths(st_intersects(tem_grid, arts_filter_6931)),
-    rts_density = rts_count / 16
+    rts_density = rts_count / grid_area
   )
 ```
 
@@ -286,7 +438,7 @@ rts_counts = tem_grid |>
     name = "Proportion",
     expand = expansion(mult = c(0, 0.05))
   ) +
-  ggtitle("Excluding Density == 0"))
+  ggtitle("RTS Density\n(Excluding Density == 0)"))
 
 # ggsave(
 #   "./figures/rts_density.jpg",
@@ -306,7 +458,7 @@ rts_counts = tem_grid |>
     color = "gray35",
     linewidth = 1,
     binwidth = 1,
-    boundary = 0
+    center = 0
   ) +
   scale_x_continuous(
     name = expression("RTS Density (# km"^-2 ~ ")")
@@ -317,7 +469,8 @@ rts_counts = tem_grid |>
     transform = "sqrt",
     breaks = c(0, 0.001, 0.01, 0.1, 1),
     minor_breaks = NULL
-  ))
+  ) +
+  ggtitle("RTS Density\n(Incl. 0; Sqrt Transformation)"))
 
 # ggsave(
 #   "./figures/rts_density_ysqrt.jpg",
@@ -335,6 +488,36 @@ density_bin_data = density_bin_data |>
 # )
 ```
 
+```{r}
+(density_hist = ggplot(
+  rts_counts |> filter(rts_count != 0),
+  aes(x = rts_count)
+) +
+  geom_histogram(
+    aes(y = ..count.. / sum(..count..)),
+    color = "gray35",
+    linewidth = 1,
+    binwidth = 1,
+    center = 0,
+    closed = "left"
+  ) +
+  scale_x_continuous(
+    name = expression("RTS Density (# TEMgridcell"^-1 ~ ")")
+  ) +
+  scale_y_continuous(
+    name = "Proportion of TEM Grid Cells",
+    expand = expansion(mult = c(0, 0.05)),
+    minor_breaks = NULL
+  ) +
+  ggtitle("RTS Count per TEM Grid Cell\n(Excluding Count == 0)"))
+
+# ggsave(
+#   "./figures/rts_count_per_tem_gridcell.jpg",
+#   density_hist,
+#   height = 3,
+#   width = 4
+# )
+```
 
 ```{r}
 bbox = st_bbox(
