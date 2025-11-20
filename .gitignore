@@ -1,5 +1,6 @@
 /data
 /figures
+*.qgz
 
 # History files
 .Rhistory
