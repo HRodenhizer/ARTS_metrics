@@ -95,7 +95,7 @@ regions = st_make_grid(
 
 ```{r}
 training_tile_grids = training_tile_grids |>
-  st_join(regions)
+  st_join(regions, largest = TRUE)
 ```
 
 ```{r}
@@ -164,7 +164,7 @@ ggplot() +
 
 ```{r}
 arts = arts |>
-  filter(TrainClass == "Positive") |>
+  filter(TrainClass == "Positive" & LabelType == "Polygon") |>
   st_join(regions, largest = TRUE)
 ```
 
