@@ -1,0 +1,345 @@
+---
+title: "Untitled"
+format: html
+author: "Heidi Rodenhizer"
+---
+
+# Set-Up
+
+```{r}
+library(sf)
+library(wk)
+library(viridis)
+library(tidyverse)
+```
+
+```{r}
+theme_set(theme_bw())
+```
+
+# Load Data
+
+```{r}
+planet_grids = st_read(
+  "../ARTS_planet_basemaps/data/circumpolar_global_basemap_grids_2024.geojson"
+)
+training_tile_grids = st_read("./data/tile_footprints.geojson") |>
+  mutate(
+    original_order = seq(1:n())
+  )
+st_crs(training_tile_grids)
+st_crs(training_tile_grids) = 3857
+
+arts = st_read(
+  "../ARTS/ARTS_main_dataset/v.6.0.0/ARTS_main_dataset_v.6.0.0.geojson"
+) |>
+  st_make_valid() |>
+  st_transform(st_crs(training_tile_grids))
+```
+
+```{r}
+world = rnaturalearth::ne_countries(scale = "medium", returnclass = "sf")
+```
+
+# Create Temporary Training Tile Grid
+
+```{r}
+# planet_grids = planet_grids |>
+#   separate_wider_delim(
+#     cols = id,
+#     delim = "-",
+#     names = c('grid_column', 'grid_row'),
+#     cols_remove = FALSE
+#   ) |>
+#   mutate(
+#     across(
+#       grid_column:grid_row,
+#       ~ as.numeric(.x)
+#     )
+#   ) |>
+#   st_as_sf()
+```
+
+```{r}
+# crop_box = st_polygon(
+#   list(
+#     matrix(
+#       c(-180, 40, 0, 40, 180, 40, 180, 80, 0, 80, -180, 80, -180, 40),
+#       ncol = 2,
+#       byrow = TRUE
+#     )
+#   )
+# ) |>
+#   st_sfc(crs = 4326)
+
+# planet_grids_extent = planet_grids |>
+#   filter(grid_column != max(grid_column)) |>
+#   st_union() |>
+#   st_as_sf() |>
+#   st_make_valid() |>
+#   st_buffer(dist = 1, endCapStyle = "SQUARE") |>
+#   st_crop(crop_box) |>
+#   st_union() |>
+#   st_make_valid()
+
+# ggplot() +
+#   geom_sf(data = planet_grids_extent) +
+#   geom_sf(data = crop_box, fill = 'transparent', linewidth = 1)
+```
+
+```{r}
+# n_columns = ((planet_grids |>
+#   st_drop_geometry() |>
+#   summarise(max(grid_column))) -
+#   (planet_grids |>
+#     st_drop_geometry() |>
+#     summarise(min(grid_column)) -
+#     1)) |>
+#   as.numeric()
+
+# n_rows = ((planet_grids |>
+#   st_drop_geometry() |>
+#   summarise(max(grid_row))) -
+#   (planet_grids |>
+#     st_drop_geometry() |>
+#     summarise(min(grid_row)) -
+#     1)) |>
+#   as.numeric()
+```
+
+```{r}
+# temp_grid = planet_grids |>
+#   st_bbox() |>
+#   grd(nx = n_columns * (4096 / 512), ny = n_rows * (4096 / 512)) |>
+#   st_as_sfc() |>
+#   st_as_sf()
+```
+
+```{r}
+# st_write(
+#   temp_grid,
+#   "./data/temp_training_tile_grid.geojson"
+# )
+# temp_grid = st_read("./data/temp_training_tile_grid.geojson")
+```
+
+```{r}
+# temp_grid_land = planet_grids |>
+#   st_intersection(temp_grid)
+
+# st_write(
+#   temp_grid_land,
+#   "./data/temp_training_tile_grid_land.geojson"
+# )
+```
+
+```{r}
+# ggplot() +
+#   geom_sf(data = temp_grid_land)
+```
+
+```{r}
+# temp_grid_arts = temp_grid_land |>
+#   st_filter(
+#     arts
+#   )
+
+# st_write(
+#   temp_grid_arts,
+#   "./data/temp_training_tile_grid_arts.geojson"
+# )
+```
+
+# Visualize Training Tiles
+
+```{r}
+(training_tile_map = ggplot() +
+  geom_sf(data = world) +
+  geom_sf(
+    data = training_tile_grids,
+    aes(color = original_order),
+    fill = "transparent",
+    linewidth = 1
+  ) +
+  scale_color_viridis() +
+  coord_sf(
+    xlim = c(-180, 180),
+    ylim = c(55, 80),
+    expand = FALSE
+  ))
+```
+
+# Create a Coarse "Regional" Grid
+
+```{r}
+n = 22
+regions = st_make_grid(
+  arts,
+  n = c(n, 1)
+) |>
+  st_as_sf() |>
+  mutate(
+    region = c(1:n)
+  ) |>
+  rename(geometry = x)
+# st_filter(training_tile_grids)
+
+# st_write(
+#   regions,
+#   "./data/training_tile_regions.geojson"
+# )
+```
+
+```{r}
+(map_w_grids = training_tile_map +
+  geom_sf(
+    data = regions,
+    color = "black",
+    fill = "transparent",
+    linewidth = 0.5
+  ) +
+  coord_sf(
+    xlim = c(-180, 180),
+    ylim = c(55, 80),
+    expand = FALSE
+  ))
+```
+
+# Reorder Training Tile Grids Using a Stratified Sample by Region
+
+```{r}
+training_tile_grids = training_tile_grids |>
+  st_join(regions)
+```
+
+```{r}
+regional_n = training_tile_grids |>
+  st_drop_geometry() |>
+  summarise(n_tiles = n(), .by = region) |>
+  arrange(n_tiles) |>
+  mutate(expected_order_tiles = seq(1:n()))
+
+regions = regions |>
+  full_join(regional_n, by = "region")
+
+n_rows = regional_n |>
+  summarise(max(n_tiles)) |>
+  as.numeric()
+
+training_tile_grids_reorder = training_tile_grids |>
+  slice_sample(n = n_rows, by = region) |>
+  mutate(
+    stratified_random_order = seq(1:n()),
+    .by = region
+  ) |>
+  arrange(stratified_random_order) |>
+  mutate(
+    stratified_random_order = seq(1:n())
+  )
+```
+
+```{r}
+ggplot() +
+  geom_sf(data = world) +
+  geom_sf(
+    data = training_tile_grids_reorder,
+    aes(color = stratified_random_order),
+    fill = "transparent",
+    linewidth = 1
+  ) +
+  scale_color_viridis() +
+  geom_sf(
+    data = regions,
+    color = "black",
+    fill = "transparent",
+    linewidth = 0.5
+  ) +
+  geom_sf_text(
+    data = regions,
+    aes(label = expected_order_tiles), # this ranks the regions from the fewest training tiles to the most training tiles, explaining the differences in color of the last plotted points in each region
+    nudge_y = 15
+  ) +
+  coord_sf(
+    xlim = c(-180, 180),
+    ylim = c(55, 87),
+    expand = FALSE
+  ) +
+  ggtitle("Training Tiles")
+```
+
+```{r}
+# st_write(
+#   training_tile_grids_reorder,
+#   "./data/tile_footprints_stratified_random_order_by_region.geojson"
+# )
+```
+
+# Reorder ARTS Using a Stratified Sample by Region
+
+```{r}
+arts = arts |>
+  filter(TrainClass == "Positive") |>
+  st_join(regions, largest = TRUE)
+```
+
+```{r}
+regional_n = arts |>
+  st_drop_geometry() |>
+  summarise(n_arts = n(), .by = region) |>
+  arrange(n_arts) |>
+  mutate(expected_order_arts = seq(1:n()))
+
+regions = regions |>
+  full_join(regional_n, by = "region")
+
+n_rows = regional_n |>
+  summarise(max(n_arts)) |>
+  as.numeric()
+
+arts_reorder = arts |>
+  slice_sample(n = n_rows, by = region) |>
+  mutate(
+    stratified_random_order = seq(1:n()),
+    .by = region
+  ) |>
+  arrange(stratified_random_order) |>
+  mutate(
+    stratified_random_order = seq(1:n())
+  )
+```
+
+```{r}
+ggplot() +
+  geom_sf(data = world) +
+  geom_sf(
+    data = arts_reorder,
+    aes(color = stratified_random_order),
+    fill = "transparent",
+    linewidth = 1
+  ) +
+  scale_color_viridis() +
+  geom_sf(
+    data = regions,
+    color = "black",
+    fill = "transparent",
+    linewidth = 0.5
+  ) +
+  geom_sf_text(
+    data = regions,
+    aes(label = expected_order_arts), # this ranks the regions from the fewest training tiles to the most training tiles, explaining the differences in color of the last plotted points in each region
+    nudge_y = 15
+  ) +
+  coord_sf(
+    xlim = c(-180, 180),
+    ylim = c(55, 87),
+    expand = FALSE
+  ) +
+  ggtitle("ARTS v6")
+```
+
+```{r}
+# st_write(
+#   arts_reorder,
+#   "./data/arts_positive_stratified_random_order_by_region.geojson"
+# )
+```
