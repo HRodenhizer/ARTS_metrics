@@ -74,11 +74,6 @@ regions = st_make_grid(
   ) |>
   rename(geometry = x)
 # st_filter(training_tile_grids)
-
-# st_write(
-#   regions,
-#   "./data/training_tile_regions.geojson"
-# )
 ```
 
 ```{r}
@@ -232,5 +227,14 @@ ggplot() +
 # st_write(
 #   arts_reorder,
 #   "./data/arts_positive_stratified_random_order_by_region.geojson"
+# )
+```
+
+# Save Regions File
+
+```{r}
+# st_write(
+#   regions,
+#   "./data/training_tile_regions.geojson"
 # )
 ```
