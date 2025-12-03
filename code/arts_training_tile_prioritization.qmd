@@ -20,15 +20,21 @@ theme_set(theme_bw())
 # Load Data
 
 ```{r}
-planet_grids = st_read(
-  "../ARTS_planet_basemaps/data/circumpolar_global_basemap_grids_2024.geojson"
-)
+# Warning: training_tile_grids was missing some tiles
 training_tile_grids = st_read("./data/tile_footprints.geojson") |>
   mutate(
     original_order = seq(1:n())
   )
 st_crs(training_tile_grids)
 st_crs(training_tile_grids) = 3857
+
+planet_grids = st_read(
+  "../ARTS_planet_basemaps/data/planet_grids_2024_artsv.6.0.0.geojson"
+) |>
+  mutate(
+    original_order = seq(1:n())
+  ) |>
+  st_transform(st_crs(training_tile_grids))
 
 arts = st_read(
   "../ARTS/ARTS_main_dataset/v.6.0.0/ARTS_main_dataset_v.6.0.0.geojson"
@@ -39,6 +45,54 @@ arts = st_read(
 
 ```{r}
 world = rnaturalearth::ne_countries(scale = "medium", returnclass = "sf")
+```
+
+# Count of Training Tiles per Planet Grid
+
+```{r}
+# Warning: training_tile_grids was missing some tiles
+training_tiles_per_grid = training_tile_grids |>
+  st_drop_geometry() |>
+  mutate(
+    id = str_extract(
+      tile_name,
+      "(?<=tile_)[:digit:]{1,4}_[:digit:]{1,4}(?=c*)"
+    )
+  ) |>
+  summarise(
+    n_training_tiles = n(),
+    .by = "id"
+  )
+
+ggplot(
+  training_tiles_per_grid,
+  aes(x = n_training_tiles, y = after_stat(density))
+) +
+  geom_histogram()
+```
+
+# Prep ARTS
+
+```{r}
+arts_subset = arts |>
+  filter(TrainClass == "Positive" & LabelType == "Polygon") |>
+  separate_wider_delim(
+    BaseMapDate,
+    delim = ",",
+    names = c("BaseMapStartDate", "BaseMapEndDate"),
+    cols_remove = FALSE
+  ) |>
+  mutate(
+    across(
+      BaseMapStartDate:BaseMapEndDate,
+      ~ case_when(
+        str_detect(.x, "[:digit:]{4}-[:digit:]{2}-[:digit:]{2}") ~ as_date(.x),
+        !str_detect(.x, "[:digit:]{4}-[:digit:]{2}-[:digit:]{2}") ~ NA
+      )
+    )
+  ) |>
+  filter(BaseMapStartDate == min(BaseMapStartDate), .by = UID) |>
+  st_as_sf()
 ```
 
 # Visualize Training Tiles
@@ -63,32 +117,42 @@ world = rnaturalearth::ne_countries(scale = "medium", returnclass = "sf")
 # Create a Coarse "Regional" Grid
 
 ```{r}
-n = 22
-regions = st_make_grid(
-  arts,
-  n = c(n, 1)
-) |>
-  st_as_sf() |>
-  mutate(
-    region = c(1:n)
-  ) |>
-  rename(geometry = x)
-# st_filter(training_tile_grids)
+# n = 22
+# regions = st_make_grid(
+#   arts,
+#   n = c(n, 1)
+# ) |>
+#   st_as_sf() |>
+#   mutate(
+#     region = c(1:n)
+#   ) |>
+#   rename(geometry = x)
+# # st_filter(training_tile_grids)
 ```
 
 ```{r}
-(map_w_grids = training_tile_map +
-  geom_sf(
-    data = regions,
-    color = "black",
-    fill = "transparent",
-    linewidth = 0.5
-  ) +
-  coord_sf(
-    xlim = c(-180, 180),
-    ylim = c(55, 80),
-    expand = FALSE
-  ))
+# (map_w_grids = training_tile_map +
+#   geom_sf(
+#     data = regions,
+#     color = "black",
+#     fill = "transparent",
+#     linewidth = 0.5
+#   ) +
+#   coord_sf(
+#     xlim = c(-180, 180),
+#     ylim = c(55, 80),
+#     expand = FALSE
+#   ))
+```
+
+## Save Regions File
+
+```{r}
+# st_write(
+#   regions,
+#   "./data/training_tile_regions.geojson"
+# )
+regions = st_read("./data/training_tile_regions.geojson")
 ```
 
 # Reorder Training Tile Grids Using a Stratified Sample by Region
@@ -230,11 +294,149 @@ ggplot() +
 # )
 ```
 
-# Save Regions File
+# Reorder Planet Grids
+
+```{r}
+planet_grids_positive = planet_grids |>
+  st_filter(arts_subset, left = FALSE)
+```
+
+```{r}
+(planet_grids_map = ggplot() +
+  geom_sf(data = world) +
+  geom_sf(
+    data = planet_grids_positive,
+    aes(color = original_order),
+    fill = "transparent",
+    linewidth = 1
+  ) +
+  scale_color_viridis() +
+  coord_sf(
+    xlim = c(-180, 180),
+    ylim = c(55, 80),
+    expand = FALSE
+  ))
+```
+
+```{r}
+planet_grids_positive = planet_grids_positive |>
+  st_join(regions, largest = TRUE)
+```
+
+```{r}
+regional_n = planet_grids_positive |>
+  st_drop_geometry() |>
+  summarise(n_grids = n(), .by = region) |>
+  arrange(n_grids) |>
+  mutate(expected_order_grids = seq(1:n()))
+
+regions = regions |>
+  full_join(regional_n, by = "region")
+
+n_rows = regional_n |>
+  summarise(max(n_grids)) |>
+  as.numeric()
+
+planet_grids_positive_reorder = planet_grids_positive |>
+  slice_sample(n = n_rows, by = region) |>
+  mutate(
+    stratified_random_order = seq(1:n()),
+    .by = region
+  ) |>
+  arrange(stratified_random_order) |>
+  mutate(
+    stratified_random_order = seq(1:n()),
+    chunk = ceiling(stratified_random_order / 10)
+  )
+```
+
+```{r}
+ggplot() +
+  geom_sf(data = world) +
+  geom_sf(
+    data = planet_grids_positive_reorder,
+    aes(color = stratified_random_order),
+    fill = "transparent",
+    linewidth = 1
+  ) +
+  scale_color_viridis() +
+  geom_sf(
+    data = regions,
+    color = "black",
+    fill = "transparent",
+    linewidth = 0.5
+  ) +
+  geom_sf_text(
+    data = regions,
+    aes(label = expected_order_grids), # this ranks the regions from the fewest training tiles to the most training tiles, explaining the differences in color of the last plotted points in each region
+    nudge_y = 15
+  ) +
+  coord_sf(
+    xlim = c(-180, 180),
+    ylim = c(55, 87),
+    expand = FALSE
+  ) +
+  ggtitle("Training Tiles")
+```
 
 ```{r}
 # st_write(
-#   regions,
-#   "./data/training_tile_regions.geojson"
+#   planet_grids_positive_reorder,
+#   "./data/planet_grids_2024_artsv.6.0.0_positive_polygons_stratified_random_order_by_region.geojson"
 # )
+```
+
+# Split ARTS into Chunks
+
+```{r}
+arts_subset_reorder = arts_subset |>
+  st_join(
+    planet_grids_positive_reorder
+  ) |>
+  arrange(stratified_random_order)
+
+# polygons that overlap a Planet Grid edge (the rows were duplicated during the join of arts_subset and planet_grids_positive_reorder)
+(nrow(arts_subset_reorder) - nrow(arts_subset)) / nrow(arts_subset)
+```
+
+```{r}
+chunks = planet_grids_positive_reorder |>
+  pull(chunk) |>
+  unique()
+
+filenames = str_c(
+  "./data/arts_subsets_by_reordered_planet_grids/ARTS_v.6.0.0_reorder_chunk",
+  chunks,
+  ".geojson"
+)
+```
+
+```{r}
+# map2(
+#   chunks,
+#   filenames,
+#   ~ arts_subset_reorder |>
+#     filter(chunk == .x) |>
+#     st_write(.y, delete_layer = TRUE)
+# )
+```
+
+
+```{r}
+n_polygons_per_chunk = map_dbl(
+  filenames,
+  ~ st_read(.x) |>
+    nrow()
+)
+
+n_polygons_per_chunk = tibble(
+  chunk = chunks,
+  file = filenames,
+  n_polygons = n_polygons_per_chunk
+)
+```
+
+```{r}
+ggplot(n_polygons_per_chunk, aes(x = n_polygons)) +
+  geom_histogram()
 ```
