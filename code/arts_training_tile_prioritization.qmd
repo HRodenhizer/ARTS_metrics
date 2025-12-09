@@ -8,7 +8,6 @@ author: "Heidi Rodenhizer"
 
 ```{r}
 library(sf)
-library(wk)
 library(viridis)
 library(tidyverse)
 ```
@@ -44,7 +43,9 @@ arts = st_read(
 ```
 
 ```{r}
-world = rnaturalearth::ne_countries(scale = "medium", returnclass = "sf")
+world = rnaturalearth::ne_countries(scale = "medium", returnclass = "sf") |>
+  st_transform(st_crs(training_tile_grids)) |>
+  st_crop(st_bbox(planet_grids))
 ```
 
 # Count of Training Tiles per Planet Grid
@@ -297,6 +298,12 @@ ggplot() +
 # Reorder Planet Grids
 
 ```{r}
+ggplot() +
+  geom_sf(data = world) +
+  geom_sf(data = planet_grids)
+```
+
+```{r}
 planet_grids_positive = planet_grids |>
   st_filter(arts_subset, left = FALSE)
 ```
@@ -346,7 +353,7 @@ planet_grids_positive_reorder = planet_grids_positive |>
   arrange(stratified_random_order) |>
   mutate(
     stratified_random_order = seq(1:n()),
-    chunk = ceiling(stratified_random_order / 10)
+    batch = ceiling(stratified_random_order / 10)
   )
 ```
 
@@ -391,52 +398,57 @@ ggplot() +
 ```{r}
 arts_subset_reorder = arts_subset |>
   st_join(
-    planet_grids_positive_reorder
+    planet_grids_positive_reorder,
+    left = FALSE
   ) |>
   arrange(stratified_random_order)
 
+arts_subset_south = arts_subset |>
+  st_filter(planet_grids_positive_reorder)
+
 # polygons that overlap a Planet Grid edge (the rows were duplicated during the join of arts_subset and planet_grids_positive_reorder)
-(nrow(arts_subset_reorder) - nrow(arts_subset)) / nrow(arts_subset)
+(nrow(arts_subset_reorder) - nrow(arts_subset_south)) /
+  nrow(arts_subset_south)
 ```
 
 ```{r}
-chunks = planet_grids_positive_reorder |>
-  pull(chunk) |>
+batches = planet_grids_positive_reorder |>
+  pull(batch) |>
   unique()
 
 filenames = str_c(
-  "./data/arts_subsets_by_reordered_planet_grids/ARTS_v.6.0.0_reorder_chunk",
-  chunks,
+  "./data/arts_subsets_by_reordered_planet_grids/ARTS_v.6.0.0_reorder_batch",
+  batches,
   ".geojson"
 )
 ```
 
 ```{r}
 # map2(
-#   chunks,
+#   batches,
 #   filenames,
 #   ~ arts_subset_reorder |>
-#     filter(chunk == .x) |>
+#     filter(batch == .x) |>
 #     st_write(.y, delete_layer = TRUE)
 # )
 ```
 
 
 ```{r}
-n_polygons_per_chunk = map_dbl(
+n_polygons_per_batch = map_dbl(
   filenames,
   ~ st_read(.x) |>
     nrow()
 )
 
-n_polygons_per_chunk = tibble(
-  chunk = chunks,
+n_polygons_per_batch = tibble(
+  batch = batches,
   file = filenames,
-  n_polygons = n_polygons_per_chunk
+  n_polygons = n_polygons_per_batch
 )
 ```
 
 ```{r}
-ggplot(n_polygons_per_chunk, aes(x = n_polygons)) +
+ggplot(n_polygons_per_batch, aes(x = n_polygons)) +
   geom_histogram()
 ```
